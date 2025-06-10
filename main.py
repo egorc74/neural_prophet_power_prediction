@@ -49,7 +49,7 @@ class Prediction:
   
     def make_model(self):   #creating neural prophet model
         self.m = NeuralProphet(
-            n_lags       = 96*2,         #future prediction in min
+            n_lags       = 96,        
             n_forecasts  = 96,
             yearly_seasonality = False, 
             weekly_seasonality = False,
@@ -66,17 +66,18 @@ class Prediction:
         self.m.add_seasonality(name="weekend_effect", period=7, fourier_order=4,
                         condition_name="weekend")
         
+        
     def day_rolling_prediction(self,end_day):
         start_day=self.df["ds"].dt.floor("D").min() + pd.Timedelta(days=7)    
 
         self.daily_rmse    = []
 
         train_df = self.df[(self.df["ds"] < end_day)] #data before the day
-        train_df.to_csv("train.csv", index=False)
+        # train_df.to_csv("train.csv", index=False)
 
         test_df  = self.df[(self.df["ds"] >= end_day) & (self.df["ds"] < end_day + pd.Timedelta(days=1))]
         self.make_model()
-        self.m.fit(train_df, freq=FREQ, progress="off", minimal=True)
+        self.m.fit(train_df, freq=FREQ,  minimal=True)
         
         future = self.m.make_future_dataframe(train_df, periods=FORECAST_HORIZON, n_historic_predictions=False)
         # make_future_dataframe does *not* know our flags → add them now
@@ -85,24 +86,13 @@ class Prediction:
         
         
         fcst = self.m.predict(future)
-        fcst.to_csv("fcst.csv", index=False)
+        # fcst.to_csv("fcst.csv", index=False)
 
-        # fcst_day = fcst[["ds", "yhat1"]].copy()            # yhat1 only (point forecast)
         fcst_day=self.prepare_forecast_data(fcst,day=end_day)
-        fcst_day.to_csv("forecast_day.csv", index=False)
-
+        # fcst_day.to_csv("forecast_day.csv", index=False)
         
-        # Error (RMSE) ------------------------------------------------------
         merged = fcst_day.merge(test_df[["ds", "y"]], on="ds")
-        rmse   = np.sqrt(np.mean((merged["y"] - merged["prediction"]) ** 2))
-        # self.daily_rmse.append((day, rmse))           
-        # rmse_df = pd.DataFrame(self.daily_rmse, columns=["day", "RMSE"])
-        mean_actual = np.mean(merged['y'])
-        rmse_percent = (rmse / mean_actual) * 100
-        print(f"RMSE (% of mean): {rmse_percent:.2f}%")
-
-        # print("Mean RMSE over all rolling steps:", rmse_df["RMSE"].mean())
-        print(fcst_day.tail())
+        self.calculate_metrics(merged=merged)        
         self.plot_graph(actual_day=test_df,forecast_day=fcst_day)
         plt.show()
 
@@ -134,6 +124,20 @@ class Prediction:
 
         df_final = df[["ds", "prediction"]]
         return df_final
+    
+
+    def calculate_metrics(self,merged): #return metrics in order [mae,rmse,mape,smape]
+        rmse   = np.sqrt(np.mean((merged["y"] - merged["prediction"]) ** 2))
+        mean_actual = np.mean(merged['y'])
+        rmse_percent = (rmse / mean_actual) * 100
+        mae=np.mean(merged["y"] - merged["prediction"])
+        mae_percent=mae/mean_actual * 100
+        mape=np.mean((merged["y"] - merged["prediction"])/merged['y']) * 100
+        smape=np.mean((merged["y"] - merged["prediction"])/(np.mean(merged["y"] + merged["prediction"])*2)) * 100
+        print(f"mae:{mae_percent},rmse:{rmse_percent},mape:{mape},smape:{smape}")
+        return [mae_percent,rmse_percent,mape,smape]
+        
+
 
     def month_prediction(self,month,number_of_days):
         day=month
@@ -148,5 +152,5 @@ class Prediction:
 
 
 p=Prediction(data_name="data_15min_measurements.csv",prediction_collumn_name="P+ Prejeta delovna moč",timestamp_collumn_name="Časovna značka")
-day = pd.Timestamp("2023-04-20 00:00:00")
+day = pd.Timestamp("2023-08-20 00:00:00")
 p.day_rolling_prediction(day)
